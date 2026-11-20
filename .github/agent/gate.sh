@@ -131,7 +131,7 @@ fi
 reasons=()
 [[ "$(cfg .automerge.enabled)" == true ]] || reasons+=("auto-merge is disabled for this repo")
 [[ "$(jq -r .isDraft <<<"$pr_json")" == false ]] || reasons+=("the PR is a draft")
-jq -e '.labels | any(.name == "agent:hold")' <<<"$pr_json" >/dev/null && reasons+=("it has the agent:hold label")
+if jq -e '.labels | any(.name == "agent:hold")' <<<"$pr_json" >/dev/null; then reasons+=("it has the agent:hold label"); fi
 [[ "$mergeable" == MERGEABLE ]] || reasons+=("GitHub reports mergeable=$mergeable")
 
 lines=$(jq -r '.additions + .deletions' <<<"$pr_json")
@@ -139,9 +139,11 @@ files=$(jq -r .changedFiles <<<"$pr_json")
 [[ "$lines" -le "$(cfg .automerge.max_changed_lines)" ]] || reasons+=("$lines changed lines (limit $(cfg .automerge.max_changed_lines))")
 [[ "$files" -le "$(cfg .automerge.max_changed_files)" ]] || reasons+=("$files changed files (limit $(cfg .automerge.max_changed_files))")
 
+# (Explicit if/fi: a trailing failed `&&` would make the loop, and with
+# `set -e` the whole script, exit non-zero when nothing matches.)
 blocked=$(gh pr diff "$PR" -R "$REPO" --name-only | while IFS= read -r f; do
   while IFS= read -r re; do
-    [[ -n "$re" ]] && grep -qE -- "$re" <<<"$f" && { echo "$f"; break; }
+    if [[ -n "$re" ]] && grep -qE -- "$re" <<<"$f"; then echo "$f"; break; fi
   done < <(cfg '.automerge.blocked_paths[]')
 done)
 [[ -z "$blocked" ]] || reasons+=("it touches protected paths: $(paste -sd, <<<"$blocked")")
