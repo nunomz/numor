@@ -1,0 +1,7 @@
+name: agent-setup
+description: Toolchain Claude needs in agent-run. Static site, nothing to install.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo "Static site; nothing to set up."

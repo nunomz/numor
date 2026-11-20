@@ -1,0 +1,26 @@
+{
+  "base_branch": "main",
+  "required_checks": [],
+  "max_auto_fix_rounds": 3,
+  "automerge": {
+    "enabled": true,
+    "max_changed_lines": 300,
+    "max_changed_files": 10,
+    "blocked_paths": [
+      "^\\.github/",
+      "^site/CNAME$",
+      "^brand/"
+    ]
+  },
+  "implement": {
+    "model": "claude-opus-5-5",
+    "max_turns": 200,
+    "verify": "There is no build or test suite: `site/` is deployed to GitHub Pages as-is. Check your HTML/CSS/JS by reading it carefully. Make sure every referenced asset exists, links resolve, and the page works without a build step.",
+    "notes": "- This repository is **public**. Never add secrets, personal data, or anything private.\n- `site/` is the live coming-soon page (deployed on every push to main). `brand/` is the brand kit and is off-limits unless the issue explicitly asks for it."
+  },
+  "review": {
+    "model": "gpt-6.1-sol",
+    "effort": "high",
+    "notes": "Public repo; `site/` deploys to GitHub Pages on merge with no build or tests, so you are the only check. Look for broken references, broken layout or HTML, accessibility regressions, third-party scripts or trackers, and anything that leaks private data."
+  }
+}

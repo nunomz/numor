@@ -1,0 +1,108 @@
+name: agent-review
+
+# Codex reviews every push to an agent PR and publishes the verdict as the
+# agent/codex-review commit status that agent-gate reads.
+#
+# Codex authenticates with a ChatGPT login (secret CODEX_AUTH_JSON) shared by
+# every repo the agent App is installed on. Its refresh tokens rotate, so a
+# refreshed auth.json is written back to all of them. Runs are serialized per
+# repo; a rare cross-repo refresh race fails closed (status "error", ping).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  actions: write # only to start agent-gate once the verdict is published
+
+jobs:
+  codex-review:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.pull_request.head.ref, 'agent/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: codex-auth
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+    env:
+      PR: ${{ inputs.pr || github.event.pull_request.number }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Snapshot pipeline scripts
+        run: cp -r .github/agent "$RUNNER_TEMP/agent"
+
+      - name: Resolve PR head
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::Bad PR number"; exit 1; }
+          gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json headRefOid --jq '"sha=" + .headRefOid' >>"$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.pr.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Codex
+        run: npm install -g @openai/codex@0.169.0
+
+      - name: Codex review
+        id: codex
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash "$RUNNER_TEMP/agent/review-run.sh"
+
+      - name: Mint agent app token
+        id: app
+        if: always()
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ vars.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+
+      # Scoped to every repo the App is installed on: they share one Codex login.
+      - name: Mint agent app token for the Codex login sync
+        id: sync
+        if: always()
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ vars.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-secrets: write
+
+      - name: Save Codex login and publish verdict
+        if: always() && steps.app.outcome == 'success'
+        env:
+          SHA: ${{ steps.pr.outputs.sha }}
+          OK: ${{ steps.codex.outputs.ok }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SYNC_TOKEN: ${{ steps.sync.outputs.token }}
+        run: bash "$RUNNER_TEMP/agent/review-post.sh"
+
+      # A manual /review run is not attached to the agent branch, so the gate's
+      # workflow_run trigger would not see it. Start the gate explicitly.
+      - name: Hand over to the gate
+        if: always() && steps.app.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run agent-gate.yml -R "$GITHUB_REPOSITORY" -f pr="$PR"
