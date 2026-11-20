@@ -10,7 +10,8 @@
 # policy. Claude and Codex never hold a token that can merge.
 #
 # Env: BRANCH (agent/issue-N) or PR, HEAD_SHA (optional: the SHA that triggered
-#      this run), GH_TOKEN (GitHub App token) + lib.sh requirements.
+#      this run), GH_TOKEN (GitHub App token), READ_TOKEN (the job's GITHUB_TOKEN,
+#      for check runs) + lib.sh requirements.
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -46,7 +47,8 @@ fi
 
 # --- collect results for the head commit ---------------------------------------
 
-checks=$(gh api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
+# The App has no Checks permission; the job's read-only GITHUB_TOKEN does.
+checks=$(GH_TOKEN="${READ_TOKEN:-$GH_TOKEN}" gh api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
   --jq '.check_runs[] | select(.app.slug == "github-actions") | {name, status, conclusion, url: .html_url}' | jq -s .)
 # The pipeline's own jobs are not results (the Codex verdict is a commit status).
 checks=$(jq '[.[] | select(.name != "gate" and .name != "codex-review")]' <<<"$checks")

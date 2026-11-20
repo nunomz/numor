@@ -32,7 +32,7 @@ pr_json=$(gh pr view "$PR" -R "$REPO" --json title,body,headRefName)
 issue=$(issue_from_branch "$(jq -r .headRefName <<<"$pr_json")")
 jq -r '"# PR #'"$PR"': " + .title + "\n\n" + .body' <<<"$pr_json" >"$ctx/pr.md"
 gh issue view "$issue" -R "$REPO" --comments >"$ctx/issue.md"
-git fetch -q --no-tags origin "+refs/heads/$base:refs/remotes/origin/$base"
+git rev-parse -q --verify "origin/$base" >/dev/null || git_fetch "+refs/heads/$base:refs/remotes/origin/$base"
 
 sed -e "s#{{PR}}#$PR#g" -e "s#{{ISSUE}}#$issue#g" -e "s#{{BASE}}#$base#g" \
     -e "s#{{CTX}}#$ctx#g" -e "s#{{REPO}}#$REPO#g" -e "s#{{OWNER}}#${REPO%%/*}#g" \

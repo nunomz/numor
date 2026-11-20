@@ -20,7 +20,7 @@ fi
 
 if [[ -n "$PR" ]]; then
   # Continue on the open PR's branch.
-  git fetch --no-tags origin "+refs/heads/$branch:refs/remotes/origin/$branch"
+  git_fetch "+refs/heads/$branch:refs/remotes/origin/$branch"
   git checkout -B "$branch" "origin/$branch"
 else
   # Fresh start from the base branch (a leftover branch without an open PR is replaced).
