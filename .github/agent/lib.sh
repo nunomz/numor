@@ -72,6 +72,15 @@ issue_from_branch() {
   sed -n 's#^agent/issue-\([0-9][0-9]*\)$#\1#p' <<<"$1"
 }
 
+# git fetch for checkouts made with persist-credentials: false (private repos).
+# Uses GH_TOKEN for this one command only; nothing is stored in .git/config.
+git_fetch() { # refspec...
+  local auth
+  auth=$(printf 'x-access-token:%s' "${GH_TOKEN:?}" | base64 -w0)
+  git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+    fetch -q --no-tags origin "$@"
+}
+
 dispatch_run() { # issue mode [pr] [reason]
   gh workflow run agent-run.yml -R "$REPO" --ref "$(cfg .base_branch)" \
     -f issue="$1" -f mode="$2" -f pr="${3:-}" -f reason="${4:-}"
