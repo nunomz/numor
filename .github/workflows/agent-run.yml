@@ -95,6 +95,9 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
+          # This workflow is only ever dispatched by the router (github-actions)
+          # or the gate (the agent App), both bots.
+          allowed_bots: github-actions,nunomz-agent
           prompt: ${{ steps.prompt.outputs.prompt }}
           claude_args: ${{ steps.prompt.outputs.claude_args }}
 
