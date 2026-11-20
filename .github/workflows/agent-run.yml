@@ -1,0 +1,126 @@
+name: agent-run
+
+# One Claude session on one issue. Started only by agent-router / agent-gate.
+#
+# Claude runs with this job's read-only GITHUB_TOKEN and a checkout without
+# push credentials. The GitHub App token that pushes, opens the PR and comments
+# is minted only after Claude has exited.
+
+run-name: "agent-run #${{ inputs.issue }} (${{ inputs.mode }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number
+        required: true
+        type: string
+      mode:
+        description: implement | resume | fix
+        required: true
+        type: choice
+        options: [implement, resume, fix]
+      pr:
+        description: Existing agent PR number (fix mode)
+        required: false
+        type: string
+        default: ""
+      reason:
+        description: Note passed to Claude
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  actions: read
+  checks: read
+  statuses: read
+
+concurrency:
+  group: agent-run-${{ inputs.issue }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      ISSUE: ${{ inputs.issue }}
+      MODE: ${{ inputs.mode }}
+      REASON: ${{ inputs.reason }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The pipeline scripts come from the base branch, never from the agent
+      # branch Claude is about to edit.
+      - name: Snapshot pipeline scripts
+        run: cp -r .github/agent "$RUNNER_TEMP/agent"
+
+      - name: Prepare branch
+        id: branch
+        env:
+          PR: ${{ inputs.pr }}
+          GH_TOKEN: ${{ github.token }}
+          AGENT_GIT_NAME: ${{ vars.AGENT_GIT_NAME }}
+          AGENT_GIT_EMAIL: ${{ vars.AGENT_GIT_EMAIL }}
+        run: bash "$RUNNER_TEMP/agent/run-prepare.sh"
+
+      - name: Set up project toolchain
+        uses: ./.github/actions/agent-setup
+
+      - name: Render prompt
+        id: prompt
+        env:
+          PR: ${{ steps.branch.outputs.pr }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+        run: bash "$RUNNER_TEMP/agent/run-prompt.sh"
+
+      - name: Claude
+        id: claude
+        continue-on-error: true
+        uses: anthropics/claude-code-action@c84e279f859e2591391e95bd309286eb111c345f # v1.0.284
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          prompt: ${{ steps.prompt.outputs.prompt }}
+          claude_args: ${{ steps.prompt.outputs.claude_args }}
+
+      - name: Mint agent app token
+        id: app
+        if: always() && steps.branch.outcome == 'success'
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ vars.AGENT_APP_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+
+      - name: Publish result
+        if: always() && steps.app.outcome == 'success'
+        env:
+          PR: ${{ steps.branch.outputs.pr }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          START_SHA: ${{ steps.branch.outputs.base_sha }}
+          CLAUDE_CONCLUSION: ${{ steps.claude.outcome }}
+          STRUCTURED: ${{ steps.claude.outputs.structured_output }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: bash "$RUNNER_TEMP/agent/run-finish.sh"
+
+      - name: Report a broken run
+        if: failure() && steps.app.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          source "$RUNNER_TEMP/agent/lib.sh" 2>/dev/null || source .github/agent/lib.sh
+          notify "💥 agent-run for #$ISSUE crashed before it could report. $(run_url)"

@@ -1,0 +1,32 @@
+name: Agent task
+description: Work for Claude. The `agent` label starts it automatically; Codex reviews the PR and it auto-merges when safe.
+labels: [agent]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Claude picks this up as soon as it is created. If something is unclear it asks here
+        (label `agent:needs-info`) and continues when you reply. Remove the `agent` label
+        before submitting if you only want to file the issue.
+  - type: textarea
+    id: what
+    attributes:
+      label: What and why
+      description: The change you want and the problem it solves.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Done when
+      description: Checkable acceptance criteria. Name tests or behaviours that prove it works.
+      placeholder: |
+        - [ ] ...
+        - [ ] A test covers ...
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes and boundaries
+      description: Optional. Pointers to code, things not to touch, out-of-scope items.

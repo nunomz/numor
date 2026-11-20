@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["outcome", "summary", "verification", "questions"],
+  "properties": {
+    "outcome": { "type": "string", "enum": ["done", "needs_info", "blocked"] },
+    "pr_title": { "type": "string" },
+    "summary": { "type": "string" },
+    "verification": { "type": "string" },
+    "questions": { "type": "array", "items": { "type": "string" } }
+  }
+}
