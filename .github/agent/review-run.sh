@@ -31,7 +31,9 @@ sha256sum "$CODEX_HOME/auth.json" | cut -d' ' -f1 >"$RUNNER_TEMP/auth.sha256"
 pr_json=$(gh pr view "$PR" -R "$REPO" --json title,body,headRefName)
 issue=$(issue_from_branch "$(jq -r .headRefName <<<"$pr_json")")
 jq -r '"# PR #'"$PR"': " + .title + "\n\n" + .body' <<<"$pr_json" >"$ctx/pr.md"
-gh issue view "$issue" -R "$REPO" --comments >"$ctx/issue.md"
+gh issue view "$issue" -R "$REPO" --json number,title,author,body,comments --jq '
+  "# Issue #\(.number): \(.title)\n_by @\(.author.login)_\n\n\(.body)\n\n## Comments\n" +
+  ([.comments[] | "\n### @\(.author.login) (\(.createdAt))\n\n\(.body)\n"] | join(""))' >"$ctx/issue.md"
 git rev-parse -q --verify "origin/$base" >/dev/null || git_fetch "+refs/heads/$base:refs/remotes/origin/$base"
 
 sed -e "s#{{PR}}#$PR#g" -e "s#{{ISSUE}}#$issue#g" -e "s#{{BASE}}#$base#g" \
